@@ -2,7 +2,7 @@
 
 using Directory.Generators;
 
-var flags = new BoolsFromEnumFlags
+var flags = new HomeCareProviderPersonalCareServicesFlags
 {
     Cleaning = true,
     HelpWithPersonalHygiene = true,

@@ -1,4 +1,6 @@
-﻿[AttributeUsage(AttributeTargets.Enum)]
+﻿namespace TestApp;
+
+[AttributeUsage(AttributeTargets.Enum)]
 public class BooleanFlagsAttribute : Attribute
 {
 }

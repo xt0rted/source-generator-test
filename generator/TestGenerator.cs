@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Text;
 
 [Generator]
 public class TestGenerator : ISourceGenerator
@@ -41,10 +42,6 @@ public class TestGenerator : ISourceGenerator
             return;
         }
 
-        var sb = new StringBuilder();
-
-        sb.AppendLine("namespace Directory.Generators");
-        sb.AppendLine("{");
 
         foreach (var @enum in receiver.EnumsToGenerate)
         {
@@ -57,24 +54,34 @@ public class TestGenerator : ISourceGenerator
                 continue;
             }
 
-            sb.Append("    public class ");
-            sb.Append(symbol.Name);
-            sb.AppendLine("Flags");
-            sb.AppendLine("    {");
+            var sb = new StringBuilder();
+
+            var ns = symbol.ContainingNamespace.IsGlobalNamespace ? null : symbol.ContainingNamespace.ToString();
+            if (ns != null)
+            {
+                sb.Append("namespace ");
+                sb.Append(ns);
+                sb.AppendLine(";");
+                sb.AppendLine();
+            }
+
+            var className = symbol.Name + "Flags";
+
+            sb.Append("public class ");
+            sb.AppendLine(className);
+            sb.AppendLine("{");
 
             for (int i = 0; i < @enum.Members.Count; i++)
             {
                 var info = semanticModel.GetDeclaredSymbol(@enum.Members[i])!;
 
-                sb.AppendLine($"        public bool {info.Name} {{ get; set; }} ");
+                sb.AppendLine($"    public bool {info.Name} {{ get; set; }} ");
             }
 
-            sb.AppendLine("    }");
+            sb.AppendLine("}");
+
+            context.AddSource(className, SourceText.From(sb.ToString(), Encoding.UTF8));
         }
-
-        sb.AppendLine("}");
-
-        context.AddSource("BoolsFromEnumFlagsNew2.g.cs", sb.ToString());
     }
 
     public void Initialize(GeneratorInitializationContext context)

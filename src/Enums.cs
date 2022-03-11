@@ -1,4 +1,6 @@
-﻿[BooleanFlags]
+﻿namespace TestApp;
+
+[BooleanFlags]
 public enum HomeCareProviderPersonalCareServices
 {
     Cleaning,
@@ -7,7 +9,7 @@ public enum HomeCareProviderPersonalCareServices
     Cooking,
 }
 
-public enum WillNotHaveFlagsGenerated
+public enum EnumWithoutGeneratedFlags
 {
     Project1,
     Project2,

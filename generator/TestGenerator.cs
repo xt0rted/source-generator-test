@@ -1,79 +1,81 @@
 ﻿namespace TestGenerator;
 
-using System.Runtime.CompilerServices;
+using System.Collections.Immutable;
 using System.Text;
 
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 [Generator]
-public class TestGenerator : ISourceGenerator
+public class TestGenerator : IIncrementalGenerator
 {
     private const string EnumExtensionsAttribute = "BooleanFlagsAttribute";
 
-    private static readonly DiagnosticDescriptor _errorDescriptor = new DiagnosticDescriptor(
-#pragma warning disable RS2008 // Enable analyzer release tracking
-            "SI0000",
-#pragma warning restore RS2008 // Enable analyzer release tracking
-            "Error in the IconSourceGenerator generator",
-    "Error in the IconSourceGenerator generator: '{0}'",
-    "IconSourceGenerator",
-    DiagnosticSeverity.Error,
-    isEnabledByDefault: true);
+    private static readonly DiagnosticDescriptor _errorDescriptor = new(
+        "SI0000",
+        "Error in the TestGenerator generator",
+        "Error in the TestGenerator generator: '{0}'",
+        "TestGenerator",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 
-    public void Execute(GeneratorExecutionContext context)
+    public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        try
+        // System.Diagnostics.Debugger.Launch();
+
+        IncrementalValuesProvider<EnumDeclarationSyntax> enumDeclarations = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => node is EnumDeclarationSyntax d && d.AttributeLists.Count > 0,
+                transform: static (ctx, _) => GetSemanticTargetForGeneration(ctx))
+            .Where(d => d is not null)!;
+
+        var compilationAndEnums = context.CompilationProvider.Combine(enumDeclarations.Collect());
+
+        context.RegisterSourceOutput(compilationAndEnums, (spc, source) =>
         {
-            ExecuteInternal(context);
-        }
-        catch (Exception ex)
-        {
-            context.ReportDiagnostic(Diagnostic.Create(_errorDescriptor, Location.None, ex.ToString()));
-        }
+            try
+            {
+                Execute(source.Left, source.Right, spc);
+            }
+            catch (Exception ex)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(_errorDescriptor, Location.None, ex.ToString()));
+            }
+        });
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private void ExecuteInternal(GeneratorExecutionContext context)
+    private static void Execute(Compilation compilation, ImmutableArray<EnumDeclarationSyntax> enums, SourceProductionContext context)
     {
-        var receiver = (ServicesReceiver?)context.SyntaxReceiver;
-        if (receiver == null || !receiver.EnumsToGenerate.Any())
+        foreach (var enumDeclaration in enums)
         {
-            return;
-        }
+            context.CancellationToken.ThrowIfCancellationRequested();
 
+            var semanticModel = compilation.GetSemanticModel(enumDeclaration.SyntaxTree);
 
-        foreach (var @enum in receiver.EnumsToGenerate)
-        {
-            var semanticModel = context.Compilation.GetSemanticModel(@enum.SyntaxTree);
-            var symbol = semanticModel.GetDeclaredSymbol(@enum);
-
-            var generateAttribute = symbol.GetAttributes().FirstOrDefault(at => at.AttributeClass?.Name == EnumExtensionsAttribute);
-            if (generateAttribute is null)
+            if (semanticModel.GetDeclaredSymbol(enumDeclaration) is not INamedTypeSymbol enumSymbol)
             {
                 continue;
             }
 
+            var className = enumSymbol.Name + "Flags";
             var sb = new StringBuilder();
 
-            var ns = symbol.ContainingNamespace.IsGlobalNamespace ? null : symbol.ContainingNamespace.ToString();
-            if (ns != null)
+            if (!enumSymbol.ContainingNamespace.IsGlobalNamespace)
             {
                 sb.Append("namespace ");
-                sb.Append(ns);
+                sb.Append(enumSymbol.ContainingNamespace.ToString());
                 sb.AppendLine(";");
                 sb.AppendLine();
             }
-
-            var className = symbol.Name + "Flags";
 
             sb.Append("public class ");
             sb.AppendLine(className);
             sb.AppendLine("{");
 
-            for (int i = 0; i < @enum.Members.Count; i++)
+            for (int i = 0; i < enumDeclaration.Members.Count; i++)
             {
-                var info = semanticModel.GetDeclaredSymbol(@enum.Members[i])!;
+                var info = semanticModel.GetDeclaredSymbol(enumDeclaration.Members[i])!;
 
                 sb.AppendLine($"    public bool {info.Name} {{ get; set; }} ");
             }
@@ -84,9 +86,28 @@ public class TestGenerator : ISourceGenerator
         }
     }
 
-    public void Initialize(GeneratorInitializationContext context)
+    static EnumDeclarationSyntax? GetSemanticTargetForGeneration(GeneratorSyntaxContext context)
     {
-        // System.Diagnostics.Debugger.Launch();
-        context.RegisterForSyntaxNotifications(() => new ServicesReceiver());
+        var enumDeclarationSyntax = (EnumDeclarationSyntax)context.Node;
+
+        foreach (AttributeListSyntax attributeListSyntax in enumDeclarationSyntax.AttributeLists)
+        {
+            foreach (AttributeSyntax attributeSyntax in attributeListSyntax.Attributes)
+            {
+                if (context.SemanticModel.GetSymbolInfo(attributeSyntax).Symbol is not IMethodSymbol attributeSymbol)
+                {
+                    continue;
+                }
+
+                var attributeContainingTypeSymbol = attributeSymbol.ContainingType;
+
+                if (attributeContainingTypeSymbol.Name == EnumExtensionsAttribute)
+                {
+                    return enumDeclarationSyntax;
+                }
+            }
+        }
+
+        return null;
     }
 }
